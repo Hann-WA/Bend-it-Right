@@ -2,6 +2,7 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import streamlit as st # Necessary to access st.session_state
+import time # <-- NEW IMPORT
 
 # ---------- Setup ----------
 mp_pose = mp.solutions.pose
@@ -23,7 +24,7 @@ def calculate_angle(a, b, c):
 
 def process_frame_and_count(frame, mode, pose):
     """
-    Processes a single video frame, calculates angles, updates the counter, 
+    Processes a single video frame, calculates angles, updates the counter/timer, 
     and draws landmarks and text overlays.
     
     Args:
@@ -53,19 +54,24 @@ def process_frame_and_count(frame, mode, pose):
         lm = results.pose_landmarks.landmark
         
         # Left side landmarks
-        shoulder = [lm[mp_pose.PoseLandmark.LEFT_SHOULDER.value].x, lm[mp_pose.PoseLandmark.LEFT_SHOULDER.value].y]
-        elbow = [lm[mp_pose.PoseLandmark.LEFT_ELBOW.value].x, lm[mp_pose.PoseLandmark.LEFT_ELBOW.value].y]
-        wrist = [lm[mp_pose.PoseLandmark.LEFT_WRIST.value].x, lm[mp_pose.PoseLandmark.LEFT_WRIST.value].y]
-        hip = [lm[mp_pose.PoseLandmark.LEFT_HIP.value].x, lm[mp_pose.PoseLandmark.LEFT_HIP.value].y]
-        knee = [lm[mp_pose.PoseLandmark.LEFT_KNEE.value].x, lm[mp_pose.PoseLandmark.LEFT_KNEE.value].y]
-        ankle = [lm[mp_pose.PoseLandmark.LEFT_ANKLE.value].x, lm[mp_pose.PoseLandmark.LEFT_ANKLE.value].y]
+        shoulder_l = [lm[mp_pose.PoseLandmark.LEFT_SHOULDER.value].x, lm[mp_pose.PoseLandmark.LEFT_SHOULDER.value].y]
+        elbow_l = [lm[mp_pose.PoseLandmark.LEFT_ELBOW.value].x, lm[mp_pose.PoseLandmark.LEFT_ELBOW.value].y]
+        wrist_l = [lm[mp_pose.PoseLandmark.LEFT_WRIST.value].x, lm[mp_pose.PoseLandmark.LEFT_WRIST.value].y]
+        hip_l = [lm[mp_pose.PoseLandmark.LEFT_HIP.value].x, lm[mp_pose.PoseLandmark.LEFT_HIP.value].y]
+        knee_l = [lm[mp_pose.PoseLandmark.LEFT_KNEE.value].x, lm[mp_pose.PoseLandmark.LEFT_KNEE.value].y]
+        ankle_l = [lm[mp_pose.PoseLandmark.LEFT_ANKLE.value].x, lm[mp_pose.PoseLandmark.LEFT_ANKLE.value].y]
         
-        # Right hip for Jumping Jack symmetry
-        hip_r= [lm[mp_pose.PoseLandmark.RIGHT_HIP.value].x, lm[mp_pose.PoseLandmark.RIGHT_HIP.value].y]
+        # Right side landmarks
+        shoulder_r = [lm[mp_pose.PoseLandmark.RIGHT_SHOULDER.value].x, lm[mp_pose.PoseLandmark.RIGHT_SHOULDER.value].y]
+        elbow_r = [lm[mp_pose.PoseLandmark.RIGHT_ELBOW.value].x, lm[mp_pose.PoseLandmark.RIGHT_ELBOW.value].y]
+        hip_r = [lm[mp_pose.PoseLandmark.RIGHT_HIP.value].x, lm[mp_pose.PoseLandmark.RIGHT_HIP.value].y]
+        knee_r = [lm[mp_pose.PoseLandmark.RIGHT_KNEE.value].x, lm[mp_pose.PoseLandmark.RIGHT_KNEE.value].y]
+        ankle_r = [lm[mp_pose.PoseLandmark.RIGHT_ANKLE.value].x, lm[mp_pose.PoseLandmark.RIGHT_ANKLE.value].y]
 
-        # 3. Exercise-Specific Logic (UNCHANGED LOGIC)
+
+        # 3. Exercise-Specific Logic 
         if mode == "Push Up":
-            angle = calculate_angle(shoulder, elbow, wrist)
+            angle = calculate_angle(shoulder_l, elbow_l, wrist_l)
             if angle > 165:
                 st.session_state.pushup_stage = "up"
             elif angle < 90 and st.session_state.pushup_stage == "up":
@@ -75,7 +81,7 @@ def process_frame_and_count(frame, mode, pose):
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
         elif mode == "Squat":
-            angle = calculate_angle(hip, knee, ankle)
+            angle = calculate_angle(hip_l, knee_l, ankle_l)
             if angle > 160:
                 st.session_state.squat_stage = "up"
             elif angle < 95 and st.session_state.squat_stage == "up":
@@ -85,7 +91,7 @@ def process_frame_and_count(frame, mode, pose):
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
 
         elif mode == "Curl Up":
-            angle = calculate_angle(shoulder, hip, knee)
+            angle = calculate_angle(shoulder_l, hip_l, knee_l)
             if angle > 90:
                 st.session_state.curlup_stage = "down"
             elif angle < 50 and st.session_state.curlup_stage == "down":
@@ -97,8 +103,8 @@ def process_frame_and_count(frame, mode, pose):
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
 
         elif mode == "Jumping Jack":
-            arm_angle = calculate_angle(hip, shoulder, elbow)
-            leg_angle = calculate_angle(hip_r, hip, knee)
+            arm_angle = calculate_angle(hip_l, shoulder_l, elbow_l)
+            leg_angle = calculate_angle(hip_r, hip_l, knee_l)
 
             if arm_angle > 120 and leg_angle > 97:
                 st.session_state.jumpingjack_stage = "up"
@@ -108,6 +114,50 @@ def process_frame_and_count(frame, mode, pose):
 
             cv2.putText(image, f'Jumping Jack Count: {st.session_state.jumpingjack_counter}', (10, 40),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+        
+        # Tree Pose Timer Logic (Uses stopwatch timer)
+        elif mode == "Tree Pose":
+            
+            # 1. Arm Angle (overhead, straight elbows, arms up)
+            arm_angle_l = calculate_angle(hip_l, shoulder_l, elbow_l)
+            arm_angle_r = calculate_angle(hip_r, shoulder_r, elbow_r)
+
+            arms_up = arm_angle_l > 160 and arm_angle_r > 160
+
+            # 2. Lifted Leg Angle (Left hip-knee-ankle should be bent for foot placement)
+            lifted_leg_angle = calculate_angle(hip_l, knee_l, ankle_l)
+          
+            
+            # Check if the posture is correct (All three criteria must be met)
+            posture_correct = arms_up and lifted_leg_angle > 70
+
+            if posture_correct:
+                
+                # START/CONTINUE TIMER
+                if st.session_state.tree_pose_start_time is None:
+                    # Start the timer if it was paused or just started
+                    st.session_state.tree_pose_start_time = time.time()
+                
+                # Calculate the elapsed duration
+                current_time = time.time()
+                st.session_state.tree_pose_hold_duration = current_time - st.session_state.tree_pose_start_time
+                
+                status_text = "Holding Pose"
+                status_color = (0, 255, 0) # Green
+            else:
+                # PAUSE TIMER: Posture is incorrect, reset the start time
+                st.session_state.tree_pose_start_time = None
+                
+                status_text = "Adjust Pose"
+                status_color = (0, 0, 255) # Red
+                
+            # Display status and duration on screen
+            cv2.putText(image, f'Status: {status_text}', (10, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, status_color, 2)
+            cv2.putText(image, f'Time: {st.session_state.tree_pose_hold_duration:.1f}s', (10, 80),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 0), 2)
+            cv2.putText(image, f'Leg Angle L: {int(lifted_leg_angle)}', (10, 110),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 0), 2)
     
     # Convert back to RGB for Streamlit display
     return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)

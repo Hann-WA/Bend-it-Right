@@ -86,13 +86,13 @@ def setup_sidebar_ui():
     """Sets up the sidebar controls and returns the selected mode and run state."""
     st.sidebar.markdown("## ⚙️ Control Panel")
     st.sidebar.markdown("### Choose Your Workout")
-    mode = st.sidebar.selectbox("Select Exercise Mode:", ["None", "Push Up", "Squat", "Curl Up", "Jumping Jack"], key="mode_select")
+    mode = st.sidebar.selectbox("Select Exercise Mode:", ["None", "Push Up", "Squat", "Curl Up", "Jumping Jack", "Tree Pose"], key="mode_select")
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 🎥 Stream Control")
     run_button = st.sidebar.checkbox("Start Live Webcam Feed", key="webcam_toggle")
     st.sidebar.markdown("---")
 
-    st.sidebar.markdown("### 📊 Live Repetition Count")
+    st.sidebar.markdown("### 📊 Live Repetition Count / Timer")
     counter_placeholder = st.sidebar.empty()
 
     st.sidebar.markdown("---")
@@ -127,25 +127,22 @@ def display_welcome_screen(mode, run_button):
             **Push Ups**: 
             - Keep your core tight and body straight.
             - Lower until your elbows reach a 90° angle.
-            - Push back up to full arm extension.
             </p>
             <p style='color: #c9d1d9;'>
             **Squats**:
             - Feet shoulder-width apart, chest up.
             - Lower your hips as if sitting in a chair (thighs parallel to floor).
-            - Drive through your heels back to standing.
             </p>
             <p style='color: #c9d1d9;'>
-            **Curl Ups**:
-            - Lie flat with knees bent.
-            - Lift your shoulders off the mat using your core (focus on the shoulder-hip-knee angle).
-            - Control your descent back to the starting position.
+            **Tree Pose**:
+            - Stand straight, bring one foot to the inner thigh of the opposite leg.
+            - Raise your arms overhead, palms together.
+            - Timer stops if arms or legs drop out of position.
             </p>
             <p style='color: #c9d1d9;'>
             **Jumping Jacks**:
             - Start standing tall with arms at sides.
             - Jump out, spreading arms and legs wide (arms above head).
-            - Jump back to the starting position.
             </p>
             """, unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
@@ -163,7 +160,7 @@ def display_welcome_screen(mode, run_button):
             st.markdown('</div>', unsafe_allow_html=True)
 
 def update_counter_ui(mode, counter_placeholder):
-    """Updates the live counter in the sidebar."""
+    """Updates the live counter/timer in the sidebar."""
     
     counter_map = {
         "Push Up": ("Push Up Reps", st.session_state.pushup_counter),
@@ -180,6 +177,24 @@ def update_counter_ui(mode, counter_placeholder):
             f'<h1 style="font-size: 3.5rem; margin: 0; line-height: 1;">{count}</h1>'
             f'</div>', unsafe_allow_html=True
         )
+    
+    elif mode == "Tree Pose":
+        # UPDATED: Use the duration directly from session state
+        duration = st.session_state.get('tree_pose_hold_duration', 0.0)
+        
+        # Convert total seconds (duration is now a float) into MM:SS format
+        seconds_total = int(duration)
+        minutes = seconds_total // 60
+        seconds_display = seconds_total % 60
+        timer_display = f"{minutes:02}:{seconds_display:02}"
+        
+        counter_placeholder.markdown(
+            f'<div class="metric-container">'
+            f'<h3>Tree Pose Hold Time</h3>'
+            f'<h1 style="font-size: 3.5rem; margin: 0; line-height: 1; color: #ffb86c;">{timer_display}</h1>'
+            f'</div>', unsafe_allow_html=True
+        )
+
 
 def display_stop_message():
     """Displays the message when the webcam is stopped."""
