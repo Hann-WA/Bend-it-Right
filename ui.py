@@ -88,9 +88,6 @@ def setup_sidebar_ui():
     st.sidebar.markdown("### Choose Your Workout")
     mode = st.sidebar.selectbox("Select Exercise Mode:", ["None", "Push Up", "Squat", "Curl Up", "Jumping Jack"], key="mode_select")
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### 🎥 Stream Control")
-    run_button = st.sidebar.checkbox("Start Live Webcam Feed", key="webcam_toggle")
-    st.sidebar.markdown("---")
 
     st.sidebar.markdown("### 📊 Live Repetition Count")
     counter_placeholder = st.sidebar.empty()
@@ -99,24 +96,21 @@ def setup_sidebar_ui():
     st.sidebar.markdown("### 💡 Guidance & Tips")
     st.sidebar.markdown("""
 1. Select an exercise mode above.
-2. Hit **'Start Live Webcam Feed'**.
+2. Hit **START** under the video and allow camera access.
 3. Ensure your whole body is visible in the frame.
 4. Let's get moving!
 """)
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 🛑 Shutdown")
-    st.sidebar.markdown("- **Stop stream**: Uncheck the webcam box.")
-    
-    return mode, run_button, counter_placeholder
+    st.sidebar.markdown("- **Stop stream**: Hit **STOP** under the video.")
 
-def display_welcome_screen(mode, run_button):
-    """Displays the welcome screen with instructions when the app is not running."""
-    if not run_button or mode == "None":
-        if mode == "None":
-            st.info("🎯 Please select an exercise mode in the **Control Panel** to begin your workout!")
-        else:
-            st.info("📹 Click the **'Start Live Webcam Feed'** checkbox to begin your exercise session!")
-            
+    return mode, counter_placeholder
+
+def display_welcome_screen(mode):
+    """Displays the welcome screen with instructions when no exercise is selected."""
+    if mode == "None":
+        st.info("🎯 Please select an exercise mode in the **Control Panel** to begin your workout!")
+
         st.markdown("## Get Ready to Train! Choose an Exercise on the Sidebar to Begin.")
         col1, col2 = st.columns([1, 1])
         with col1:
@@ -162,27 +156,13 @@ def display_welcome_screen(mode, run_button):
             """, unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
-def update_counter_ui(mode, counter_placeholder):
+def update_counter_ui(mode, counter_placeholder, count):
     """Updates the live counter in the sidebar."""
-    
-    counter_map = {
-        "Push Up": ("Push Up Reps", st.session_state.pushup_counter),
-        "Squat": ("Squat Reps", st.session_state.squat_counter),
-        "Curl Up": ("Curl Up Reps", st.session_state.curlup_counter),
-        "Jumping Jack": ("Jumping Jack Reps", st.session_state.jumpingjack_counter),
-    }
-
-    if mode in counter_map:
-        title, count = counter_map[mode]
+    if mode != "None":
+        title = f"{mode} Reps"
         counter_placeholder.markdown(
             f'<div class="metric-container">'
             f'<h3>{title}</h3>'
             f'<h1 style="font-size: 3.5rem; margin: 0; line-height: 1;">{count}</h1>'
             f'</div>', unsafe_allow_html=True
         )
-
-def display_stop_message():
-    """Displays the message when the webcam is stopped."""
-    st.markdown('<div class="warning-box">', unsafe_allow_html=True)
-    st.warning("Webcam stopped. Great job! Select 'Start Live Webcam Feed' to resume your workout.")
-    st.markdown('</div>', unsafe_allow_html=True)

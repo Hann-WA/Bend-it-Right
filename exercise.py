@@ -1,11 +1,37 @@
 import cv2
 import mediapipe as mp
 import numpy as np
-import streamlit as st # Necessary to access st.session_state
+import threading
 
 # ---------- Setup ----------
 mp_pose = mp.solutions.pose
 mp_drawing = mp.solutions.drawing_utils
+
+class RepCounter:
+    """Holds rep counts and movement stages for every exercise.
+
+    The webcam frames are processed on a background thread (streamlit-webrtc),
+    so counts live here instead of st.session_state. A lock lets the Streamlit
+    script thread read the counts safely while frames are being processed.
+    """
+
+    EXERCISES = ("Push Up", "Squat", "Curl Up", "Jumping Jack")
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.counts = {name: 0 for name in self.EXERCISES}
+        self.stages = {name: None for name in self.EXERCISES}
+
+    def get(self, mode):
+        with self.lock:
+            return self.counts.get(mode, 0)
+
+    def reset(self):
+        with self.lock:
+            for name in self.EXERCISES:
+                self.counts[name] = 0
+                self.stages[name] = None
+
 
 # Helper: Calculate Angle (Unchanged)
 def calculate_angle(a, b, c):
@@ -21,7 +47,7 @@ def calculate_angle(a, b, c):
     cos_angle = np.dot(ab, bc) / (norm_ab * norm_bc)
     return np.degrees(np.arccos(np.clip(cos_angle, -1.0, 1.0)))
 
-def process_frame_and_count(frame, mode, pose):
+def process_frame_and_count(frame, mode, pose, counter):
     """
     Processes a single video frame, calculates angles, updates the counter, 
     and draws landmarks and text overlays.
@@ -30,9 +56,10 @@ def process_frame_and_count(frame, mode, pose):
         frame: The current frame (BGR image) from the webcam.
         mode: The active exercise mode string.
         pose: The initialized mediapipe pose object.
+        counter: The RepCounter that stores counts and stages.
 
     Returns:
-        The processed frame (RGB image) with overlays.
+        The processed frame (BGR image) with overlays.
     """
     image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     # Set writeable to false for performance
@@ -64,50 +91,55 @@ def process_frame_and_count(frame, mode, pose):
         hip_r= [lm[mp_pose.PoseLandmark.RIGHT_HIP.value].x, lm[mp_pose.PoseLandmark.RIGHT_HIP.value].y]
 
         # 3. Exercise-Specific Logic (UNCHANGED LOGIC)
-        if mode == "Push Up":
-            angle = calculate_angle(shoulder, elbow, wrist)
-            if angle > 165:
-                st.session_state.pushup_stage = "up"
-            elif angle < 90 and st.session_state.pushup_stage == "up":
-                st.session_state.pushup_stage = "down"
-                st.session_state.pushup_counter += 1
-            cv2.putText(image, f'Push-up Count: {st.session_state.pushup_counter}', (10, 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        with counter.lock:
+            _count_rep(image, mode, counter, shoulder, elbow, wrist, hip, knee, ankle, hip_r)
 
-        elif mode == "Squat":
-            angle = calculate_angle(hip, knee, ankle)
-            if angle > 160:
-                st.session_state.squat_stage = "up"
-            elif angle < 95 and st.session_state.squat_stage == "up":
-                st.session_state.squat_stage = "down"
-                st.session_state.squat_counter += 1
-            cv2.putText(image, f'Squat Count: {st.session_state.squat_counter}', (10, 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
+    return image
 
-        elif mode == "Curl Up":
-            angle = calculate_angle(shoulder, hip, knee)
-            if angle > 90:
-                st.session_state.curlup_stage = "down"
-            elif angle < 50 and st.session_state.curlup_stage == "down":
-                st.session_state.curlup_stage = "up"
-                st.session_state.curlup_counter += 1
-            cv2.putText(image, f'Hip Angle: {int(angle)}', (10, 80),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2)
-            cv2.putText(image, f'Curl-Up Count: {st.session_state.curlup_counter}', (10, 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
 
-        elif mode == "Jumping Jack":
-            arm_angle = calculate_angle(hip, shoulder, elbow)
-            leg_angle = calculate_angle(hip_r, hip, knee)
+def _count_rep(image, mode, counter, shoulder, elbow, wrist, hip, knee, ankle, hip_r):
+    """Updates the counter for the active exercise and draws the overlay text."""
+    if mode == "Push Up":
+        angle = calculate_angle(shoulder, elbow, wrist)
+        if angle > 165:
+            counter.stages["Push Up"] = "up"
+        elif angle < 90 and counter.stages["Push Up"] == "up":
+            counter.stages["Push Up"] = "down"
+            counter.counts["Push Up"] += 1
+        cv2.putText(image, f'Push-up Count: {counter.counts["Push Up"]}', (10, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-            if arm_angle > 120 and leg_angle > 97:
-                st.session_state.jumpingjack_stage = "up"
-            elif arm_angle < 100 and leg_angle < 94 and st.session_state.jumpingjack_stage == "up":
-                st.session_state.jumpingjack_stage = "down"
-                st.session_state.jumpingjack_counter += 1
+    elif mode == "Squat":
+        angle = calculate_angle(hip, knee, ankle)
+        if angle > 160:
+            counter.stages["Squat"] = "up"
+        elif angle < 95 and counter.stages["Squat"] == "up":
+            counter.stages["Squat"] = "down"
+            counter.counts["Squat"] += 1
+        cv2.putText(image, f'Squat Count: {counter.counts["Squat"]}', (10, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
 
-            cv2.putText(image, f'Jumping Jack Count: {st.session_state.jumpingjack_counter}', (10, 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
-    
-    # Convert back to RGB for Streamlit display
-    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    elif mode == "Curl Up":
+        angle = calculate_angle(shoulder, hip, knee)
+        if angle > 90:
+            counter.stages["Curl Up"] = "down"
+        elif angle < 50 and counter.stages["Curl Up"] == "down":
+            counter.stages["Curl Up"] = "up"
+            counter.counts["Curl Up"] += 1
+        cv2.putText(image, f'Hip Angle: {int(angle)}', (10, 80),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2)
+        cv2.putText(image, f'Curl-Up Count: {counter.counts["Curl Up"]}', (10, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
+
+    elif mode == "Jumping Jack":
+        arm_angle = calculate_angle(hip, shoulder, elbow)
+        leg_angle = calculate_angle(hip_r, hip, knee)
+
+        if arm_angle > 120 and leg_angle > 97:
+            counter.stages["Jumping Jack"] = "up"
+        elif arm_angle < 100 and leg_angle < 94 and counter.stages["Jumping Jack"] == "up":
+            counter.stages["Jumping Jack"] = "down"
+            counter.counts["Jumping Jack"] += 1
+
+        cv2.putText(image, f'Jumping Jack Count: {counter.counts["Jumping Jack"]}', (10, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)

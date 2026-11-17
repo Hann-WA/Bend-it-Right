@@ -1,0 +1,7 @@
+streamlit>=1.40
+streamlit-webrtc>=0.62
+# mediapipe 0.10.30+ removed the mp.solutions API this app uses;
+# 0.10.21 needs Python 3.9-3.12 (see .python-version).
+mediapipe==0.10.21
+opencv-python-headless<4.12
+numpy<2

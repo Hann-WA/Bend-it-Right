@@ -1,8 +1,11 @@
+import time
+
+import av
 import streamlit as st
-import cv2
-import mediapipe as mp
-from ui import apply_custom_css, setup_sidebar_ui, display_welcome_screen, update_counter_ui, display_stop_message
-from exercise import process_frame_and_count, mp_pose
+from streamlit_webrtc import VideoProcessorBase, WebRtcMode, webrtc_streamer
+
+from ui import apply_custom_css, setup_sidebar_ui, display_welcome_screen, update_counter_ui
+from exercise import RepCounter, process_frame_and_count, mp_pose
 
 # ---------- Configuration and Setup ----------
 st.set_page_config(page_title="Bend It Right - Your Personal Trainer", layout="wide", page_icon="💪")
@@ -13,73 +16,88 @@ st.markdown("<h1><span style='color: #3fb950;'>Bend It Right</span> - Live Exerc
 st.markdown("---")
 
 # ---------- Session State Initialization (Streamlit Standard) ----------
-if "pushup_counter" not in st.session_state:
-    st.session_state.pushup_counter = 0
-    st.session_state.pushup_stage = None
+# One RepCounter per browser session; it keeps counts across stream stop/start.
+if "rep_counter" not in st.session_state:
+    st.session_state.rep_counter = RepCounter()
 
-if "squat_counter" not in st.session_state:
-    st.session_state.squat_counter = 0
-    st.session_state.squat_stage = None
 
-if "curlup_counter" not in st.session_state:
-    st.session_state.curlup_counter = 0
-    st.session_state.curlup_stage = None
+def get_rtc_configuration():
+    """ICE servers used to connect the visitor's browser to the server.
 
-if "jumpingjack_counter" not in st.session_state:
-    st.session_state.jumpingjack_counter = 0
-    st.session_state.jumpingjack_stage = None
+    A public STUN server is enough on most networks. If video fails to connect
+    once hosted (strict firewalls / mobile networks), add a TURN server in
+    .streamlit/secrets.toml (or the host's secrets settings), e.g.:
+
+        [[ice_servers]]
+        urls = ["turn:your.turn.server:3478"]
+        username = "..."
+        credential = "..."
+    """
+    ice_servers = [{"urls": ["stun:stun.l.google.com:19302"]}]
+    try:
+        if "ice_servers" in st.secrets:
+            ice_servers += [dict(server) for server in st.secrets["ice_servers"]]
+    except Exception:
+        pass  # No secrets file: STUN only.
+    return {"iceServers": ice_servers}
+
+
+class PoseProcessor(VideoProcessorBase):
+    """Runs pose detection on each frame from the browser webcam.
+
+    streamlit-webrtc calls recv() on a background thread, so this class must not
+    touch st.* APIs. The active mode is set from the script thread.
+    """
+
+    def __init__(self, counter):
+        self.counter = counter
+        self.mode = "None"
+        self.pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+
+    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
+        image = frame.to_ndarray(format="bgr24")
+        image = process_frame_and_count(image, self.mode, self.pose, self.counter)
+        return av.VideoFrame.from_ndarray(image, format="bgr24")
+
+    def on_ended(self):
+        self.pose.close()
 
 
 def main():
     """Orchestrates the application flow."""
-    # Setup sidebar UI and get current state
-    # This call creates the checkbox with key="webcam_toggle" and saves its state to st.session_state.
-    mode, run_button, counter_placeholder = setup_sidebar_ui()
-    
-    # Placeholder for the main video stream
-    frame_placeholder = st.empty()
+    mode, counter_placeholder = setup_sidebar_ui()
+    counter = st.session_state.rep_counter
 
-    # Display welcome/instructions if not running
-    if not run_button or mode == "None":
-        display_welcome_screen(mode, run_button)
+    # Display welcome/instructions until an exercise is chosen
+    if mode == "None":
+        display_welcome_screen(mode)
         return
 
-    # --- Main Loop Execution ---
+    update_counter_ui(mode, counter_placeholder, counter.get(mode))
+
+    ctx = webrtc_streamer(
+        key="bend-it-right",
+        mode=WebRtcMode.SENDRECV,
+        rtc_configuration=get_rtc_configuration(),
+        video_processor_factory=lambda: PoseProcessor(counter),
+        media_stream_constraints={"video": True, "audio": False},
+        async_processing=True,
+    )
+
+    if ctx.video_processor:
+        ctx.video_processor.mode = mode
+
+    if not ctx.state.playing:
+        st.info("📹 Click **START** above and allow camera access to begin your exercise session!")
+        return
+
     st.success(f"🔥 **Workout Active**: **{mode}** Mode is counting your reps!")
-    
-    cap = cv2.VideoCapture(0)
-    
-    # Initialize MediaPipe Pose detection
-    with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
-        # The loop must only check if the webcam is open. The termination check 
-        # is moved inside the loop using session_state.
-        while cap.isOpened():
-            
-            # Check for termination condition by reading the state of the checkbox 
-            # from session state. This prevents the duplicate element error.
-            if not st.session_state.webcam_toggle:
-                break
-                
-            ret, frame = cap.read()
-            if not ret:
-                break
-            
-            # Process frame using logic from exercise.py
-            processed_image_rgb = process_frame_and_count(frame, mode, pose)
 
-            # Display processed frame
-            # FIX: Replaced deprecated use_column_width=True with use_container_width=True
-            frame_placeholder.image(processed_image_rgb, channels="RGB", use_container_width=True)
-
-            # Update counter UI in the sidebar
-            update_counter_ui(mode, counter_placeholder)
-            
-            # REMOVED: st.sidebar.checkbox("Start Live Webcam Feed", key="webcam_toggle") 
-            # This was the cause of the duplicate key error.
-
-    # Clean up and display stop message
-    cap.release()
-    display_stop_message()
+    # Keep the sidebar counter in sync while the stream runs. Streamlit stops
+    # this loop automatically when the user changes a widget or hits STOP.
+    while ctx.state.playing:
+        update_counter_ui(mode, counter_placeholder, counter.get(mode))
+        time.sleep(0.25)
 
 
 if __name__ == "__main__":
